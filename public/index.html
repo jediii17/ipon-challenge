@@ -35,7 +35,7 @@
   <script>
     async function loadComponent(id, file) {
       try {
-        const response = await fetch(`/components/${file}`);
+        const response = await fetch(`views/components/${file}`);
         if (response.ok) {
           document.getElementById(id).innerHTML = await response.text();
         } else {

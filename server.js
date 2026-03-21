@@ -88,6 +88,7 @@ const loginLimiter = rateLimit({
 
 // Serve Static Frontend files from 'public' folder
 app.use(express.static(path.join(__dirname, 'public')));
+app.use('/views', express.static(path.join(__dirname, 'views')));
 
 // ================= SESSION TOKEN STORE =================
 // In-memory session store (in production, use Redis or DB-backed sessions)
@@ -460,7 +461,12 @@ app.get('/{*path}', (req, res) => {
 });
 
 // Start server
-app.listen(port, () => {
-  console.log(`🚀 Server running at http://localhost:${port}`);
-  console.log(`🛡️  Security: Helmet, Rate Limiting, Session Auth enabled`);
-});
+if (process.env.NODE_ENV !== 'production') {
+  app.listen(port, () => {
+    console.log(`🚀 Server running at http://localhost:${port}`);
+    console.log(`🛡️  Security: Helmet, Rate Limiting, Session Auth enabled`);
+  });
+}
+
+// Export for Vercel serverless deployment
+module.exports = app;
