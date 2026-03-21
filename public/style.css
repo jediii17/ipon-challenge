@@ -1382,3 +1382,40 @@ h1, h2, h3, h4, h5, h6 {
   transform: translateY(-4px);
   box-shadow: var(--shadow-lg);
 }
+
+/* ===========================
+   NOTYF TOAST OVERRIDES
+   =========================== */
+.notyf__toast.notyf-theme {
+  background: var(--bg-card) !important;
+  border: 1px solid var(--border) !important;
+  box-shadow: var(--shadow-xl) !important;
+  border-radius: var(--radius-sm) !important;
+  max-width: 350px !important;
+}
+.notyf__toast.notyf-theme .notyf__message {
+  color: var(--text-primary) !important;
+  font-family: var(--font) !important;
+  font-weight: 600 !important;
+  font-size: 0.9rem !important;
+}
+.notyf__toast.notyf-success {
+  border-left: 4px solid var(--green) !important;
+}
+.notyf__toast.notyf-error {
+  border-left: 4px solid var(--red) !important;
+}
+.notyf-icon-success {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  background-image: url('data:image/svg+xml;utf8,<svg viewBox="0 0 24 24" fill="none" stroke="%2300b894" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>');
+  background-size: cover;
+}
+.notyf-icon-error {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  background-image: url('data:image/svg+xml;utf8,<svg viewBox="0 0 24 24" fill="none" stroke="%23d63031" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>');
+  background-size: cover;
+}

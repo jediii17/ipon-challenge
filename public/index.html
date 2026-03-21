@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Ipon Challenge — A professional savings challenge dashboard with multi-sub-account support, interest tracking, and goal management.">
+  <title>Ipon Challenge — Savings Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" type="image/png" href="logo.png">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/notyf@3/notyf.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/notyf@3/notyf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+  <!-- Login Screen (hidden until session check) -->
+  <div id="component-login" style="display:none;"></div>
+
+  <!-- Main App -->
+  <div id="app" class="app" style="display:none;">
+    <div id="component-header"></div>
+    <div id="component-dashboard"></div>
+  </div>
+
+  <!-- Modals -->
+  <div id="component-modals"></div>
+
+  <!-- Footer -->
+  <div id="component-footer"></div>
+
+  <!-- Component Loader — loads HTML components then initializes the app -->
+  <script>
+    async function loadComponent(id, file) {
+      try {
+        const response = await fetch(`/components/${file}`);
+        if (response.ok) {
+          document.getElementById(id).innerHTML = await response.text();
+        } else {
+          console.error(`Failed to load component: ${file}`);
+        }
+      } catch (err) {
+        console.error(`Error loading component ${file}:`, err);
+      }
+    }
+
+    (async function initApp() {
+      await Promise.all([
+        loadComponent('component-login', 'login.html'),
+        loadComponent('component-header', 'header.html'),
+        loadComponent('component-dashboard', 'dashboard.html'),
+        loadComponent('component-modals', 'modals.html'),
+        loadComponent('component-footer', 'footer.html'),
+      ]);
+
+      // All components are loaded — now load the app logic
+      const script = document.createElement('script');
+      script.src = 'app.js';
+      script.onload = function() {
+        // After app.js runs, show the correct screen
+        const hasSession = localStorage.getItem('ipon_session');
+        if (!hasSession) {
+          document.getElementById('component-login').style.display = '';
+        }
+        // If session exists, restoreSession() in app.js will show the dashboard
+      };
+      document.body.appendChild(script);
+    })();
+  </script>
+
+</body>
+</html>

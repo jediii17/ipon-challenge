@@ -2,74 +2,66 @@
    IPON CHALLENGE — APP LOGIC
    =========================== */
 
-// ==================== DEMO DATA ====================
+// ==================== CONFIG ====================
 const INTEREST_RATE = 0.02; // 2% per annum
 const MONTHLY_RATE = INTEREST_RATE / 12;
 const SAVINGS_GOAL = 50000;
 
-const ADMIN_PASSWORD = '987admin123';
+// User data is loaded from the server — no credentials stored in frontend
+let usersData = {};
+let sessionToken = null; // Session token from server
 
-let usersData = {
-  sed: {
-    name: 'Sed',
-    password: '429Sed924',
-    subAccounts: {},
-  },
-  emz: {
-    name: 'Emz',
-    password: '731Emily137',
-    subAccounts: {},
-  },
-  tes: {
-    name: 'Tes',
-    password: '130Tess031',
-    subAccounts: {},
-  },
-  doris: {
-    name: 'Doris',
-    password: '707Adoracion707',
-    subAccounts: {},
-  },
-  ella: {
-    name: 'Ella',
-    password: '808Marinella808',
-    subAccounts: {},
-  },
-};
-
-// Initialize Firebase
-let db;
-if (typeof firebase !== 'undefined') {
-  firebase.initializeApp(firebaseConfig);
-  db = firebase.firestore();
-
-  // Enable persistent offline storage (optional but good for mobile)
-  db.enablePersistence().catch((err) => {
-    if (err.code == 'failed-precondition') {
-      console.warn("Persistence failed: Multiple tabs open");
-    } else if (err.code == 'unimplemented') {
-      console.warn("Persistence is not available in this browser");
-    }
-  });
+// ==================== SESSION PERSISTENCE ====================
+function saveSession(token, role, userKey) {
+  sessionToken = token;
+  localStorage.setItem('ipon_session', JSON.stringify({ token, role, userKey }));
 }
 
-// ==================== PERSISTENCE ====================
-async function saveData() {
-  // Save to LocalStorage as a fallback
-  localStorage.setItem('ipon_challenge_v1', JSON.stringify(usersData));
+function clearSession() {
+  sessionToken = null;
+  localStorage.removeItem('ipon_session');
+}
 
-  // Save to Firebase Cloud
-  if (db) {
-    try {
-      await db.collection('app_data').doc('global_state').set(usersData);
-      console.log("Data synced to cloud successfully");
-    } catch (e) {
-      console.error("Error syncing to cloud:", e);
+function getSavedSession() {
+  try {
+    const raw = localStorage.getItem('ipon_session');
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+
+// Load user list for login dropdown from the server
+async function loadUserList() {
+  try {
+    const response = await fetch('/api/users');
+    if (response.ok) {
+      const users = await response.json();
+      const select = document.getElementById('login-user');
+      select.innerHTML = '';
+      for (const [key, val] of Object.entries(users)) {
+        const opt = document.createElement('option');
+        opt.value = key;
+        opt.textContent = val.name;
+        select.appendChild(opt);
+      }
     }
+  } catch (err) {
+    console.error('Error loading user list:', err);
   }
 }
 
-function loadData() {
+loadUserList();
+
+// ==================== AUTH HELPERS ====================
+function getAuthHeaders() {
+  const headers = { 'Content-Type': 'application/json' };
+  if (sessionToken) {
+    headers['Authorization'] = `Bearer ${sessionToken}`;
+  }
+  return headers;
+}
+
+// Removed saveData() since we use individual CRUD endpoints now
+async function loadData() {
   // 1. Initial Load from LocalStorage (Fastest)
   const saved = localStorage.getItem('ipon_challenge_v1');
   if (saved) {
@@ -79,29 +71,28 @@ function loadData() {
     } catch (e) { console.error(e); }
   }
 
-  // 2. Real-time Sync from Firebase
-  if (db) {
-    db.collection('app_data').doc('global_state').onSnapshot((doc) => {
-      if (doc.exists) {
-        console.log("Cloud data updated, syncing locally...");
-        usersData = doc.data();
+  // 2. Sync from Express Backend (requires auth token)
+  if (!sessionToken) return;
 
-        // Update LocalStorage to keep them in sync
+  try {
+    const response = await fetch('/api/data', {
+      headers: getAuthHeaders()
+    });
+    if (response.ok) {
+      const serverData = await response.json();
+      if (serverData) {
+        console.log("Cloud data loaded, syncing locally...");
+        usersData = serverData;
         localStorage.setItem('ipon_challenge_v1', JSON.stringify(usersData));
-
-        // Refresh UI if we are already logged in
         if (currentUser || currentRole === 'admin') {
           refreshDashboard();
         }
-      } else {
-        // First time setup: push local data to cloud
-        saveData();
       }
-    });
+    }
+  } catch (err) {
+    console.error("Error loading data from server:", err);
   }
 }
-
-loadData();
 
 // ==================== STATE ====================
 let currentRole = null; // 'admin' or 'user'
@@ -112,6 +103,15 @@ let currentPage = 1;
 const ROWS_PER_PAGE = 8;
 let lineChart = null;
 let barChart = null;
+
+const notyf = new Notyf({
+  duration: 4000,
+  position: { x: 'right', y: 'top' },
+  types: [
+    { type: 'success', className: 'notyf-theme notyf-success', background: 'transparent', icon: { className: 'notyf-icon-success', tagName: 'i' } },
+    { type: 'error', className: 'notyf-theme notyf-error', background: 'transparent', icon: { className: 'notyf-icon-error', tagName: 'i' } }
+  ]
+});
 
 // ==================== TUTORIAL DATA ====================
 let tutorialStepIndex = 0;
@@ -643,12 +643,26 @@ function populateUserFilter() {
 function populateDepositModal() {
   const userSelect = document.getElementById('deposit-user');
   userSelect.innerHTML = '';
+  
+  let addedUsers = 0;
   Object.keys(usersData).forEach(key => {
+    // Regular users can only deposit to themselves
+    if (currentRole === 'user' && key !== currentUser) return;
+
     const opt = document.createElement('option');
     opt.value = key;
     opt.textContent = usersData[key].name;
     userSelect.appendChild(opt);
+    addedUsers++;
   });
+
+  if (addedUsers === 0) {
+    const opt = document.createElement('option');
+    opt.disabled = true;
+    opt.textContent = 'No available users';
+    userSelect.appendChild(opt);
+  }
+
   updateDepositSubAccounts();
   document.getElementById('deposit-date').value = new Date().toISOString().split('T')[0];
 }
@@ -657,13 +671,24 @@ function updateDepositSubAccounts() {
   const userKey = document.getElementById('deposit-user').value;
   const saSelect = document.getElementById('deposit-subaccount');
   saSelect.innerHTML = '';
-  if (usersData[userKey]) {
-    Object.keys(usersData[userKey].subAccounts).forEach(saKey => {
+  
+  if (userKey && usersData[userKey] && usersData[userKey].subAccounts) {
+    const saKeys = Object.keys(usersData[userKey].subAccounts);
+    if (saKeys.length === 0) {
       const opt = document.createElement('option');
-      opt.value = saKey;
-      opt.textContent = usersData[userKey].subAccounts[saKey].label;
+      opt.value = "";
+      opt.disabled = true;
+      opt.selected = true;
+      opt.textContent = 'No Sub-Accounts (Create one first)';
       saSelect.appendChild(opt);
-    });
+    } else {
+      saKeys.forEach(saKey => {
+        const opt = document.createElement('option');
+        opt.value = saKey;
+        opt.textContent = usersData[userKey].subAccounts[saKey].label;
+        saSelect.appendChild(opt);
+      });
+    }
   }
 }
 
@@ -672,15 +697,35 @@ async function submitDeposit() {
   const s = document.getElementById('deposit-subaccount').value;
   const a = parseFloat(document.getElementById('deposit-amount').value);
   const d = document.getElementById('deposit-date').value;
+  
+  if (!s || s === "") {
+    await showDialog('Invalid Target', 'Please select a valid sub-account. You may need to create one first.', 'alert', 'danger');
+    return;
+  }
+  
   if (!a || a <= 0 || !d) {
     await showDialog('Invalid Input', 'Common! Please enter a valid amount and date.', 'alert', 'danger');
     return;
   }
-  usersData[u].subAccounts[s].deposits.push({ date: d, amount: a });
-  saveData();
-  document.getElementById('deposit-modal').style.display = 'none';
-  document.getElementById('deposit-amount').value = '';
-  refreshDashboard();
+  
+  try {
+    const res = await fetch('/api/transactions', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ sub_account_id: s, user_id: u, amount: a, date: d })
+    });
+    
+    if (!res.ok) throw new Error('Deposit failed');
+    
+    await loadData();
+    document.getElementById('deposit-modal').style.display = 'none';
+    document.getElementById('deposit-amount').value = '';
+    refreshDashboard();
+    notyf.success('Deposit recorded successfully!');
+  } catch (err) {
+    console.error(err);
+    notyf.error('Failed to record deposit.');
+  }
 }
 
 function refreshDashboard() {
@@ -698,24 +743,41 @@ async function handleLogin() {
   const errorEl = document.getElementById('login-error');
   errorEl.style.display = 'none';
 
-  if (role === 'admin') {
-    if (password !== ADMIN_PASSWORD) {
-      errorEl.textContent = 'Incorrect admin password.';
+  const userKey = role === 'user' ? document.getElementById('login-user').value : null;
+
+  try {
+    const response = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role, userKey, password })
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      errorEl.textContent = result.message || 'Login failed.';
       errorEl.style.display = 'block';
       return;
     }
-    currentRole = 'admin'; currentUser = null;
-  } else {
-    const userKey = document.getElementById('login-user').value;
-    if (!usersData[userKey] || password !== usersData[userKey].password) {
-      errorEl.textContent = 'Incorrect password. Try again.';
-      errorEl.style.display = 'block';
-      return;
-    }
-    currentRole = 'user';
-    currentUser = userKey;
+
+    currentRole = result.role;
+    currentUser = result.userKey || null;
+    saveSession(result.token, result.role, result.userKey || null);
+  } catch (err) {
+    errorEl.textContent = 'Network error. Is the server running?';
+    errorEl.style.display = 'block';
+    return;
   }
 
+  // Load data from server now that we have a valid session
+  await loadData();
+
+  setupDashboardUI();
+  checkTutorial();
+}
+
+// Reusable UI setup for both login and session restore
+function setupDashboardUI() {
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('app').style.display = '';
   document.body.setAttribute('data-role', currentRole);
@@ -725,7 +787,13 @@ async function handleLogin() {
   badge.className = 'role-badge ' + currentRole;
 
   const nameDisplay = document.getElementById('user-name-display');
-  nameDisplay.textContent = currentRole === 'admin' ? 'Administrator' : usersData[currentUser].name;
+  if (currentRole === 'admin') {
+    nameDisplay.textContent = 'Administrator';
+  } else if (usersData[currentUser]) {
+    nameDisplay.textContent = usersData[currentUser].name;
+  } else {
+    nameDisplay.textContent = currentUser || '';
+  }
 
   document.getElementById('manage-users-btn').style.display = currentRole === 'admin' ? '' : 'none';
   document.getElementById('add-deposit-btn').style.display = currentRole === 'admin' ? '' : 'none';
@@ -736,7 +804,8 @@ async function handleLogin() {
     document.getElementById('dashboard-title').textContent = 'Admin Dashboard';
     document.getElementById('dashboard-subtitle').textContent = 'Viewing all users and sub-accounts';
   } else {
-    document.getElementById('dashboard-title').textContent = usersData[currentUser].name + "'s Dashboard";
+    const name = usersData[currentUser] ? usersData[currentUser].name : currentUser;
+    document.getElementById('dashboard-title').textContent = name + "'s Dashboard";
     document.getElementById('dashboard-subtitle').textContent = 'Your savings overview';
   }
 
@@ -746,8 +815,6 @@ async function handleLogin() {
   populateUserFilter();
   populateSubAccountSelector();
   refreshDashboard();
-
-  checkTutorial();
 }
 
 function checkTutorial() {
@@ -794,14 +861,63 @@ function nextTutorialStep() {
 }
 
 function handleLogout() {
+  // Invalidate session on server
+  if (sessionToken) {
+    fetch('/api/logout', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${sessionToken}` }
+    }).catch(() => {});
+  }
+
+  clearSession();
   currentRole = null; currentUser = null; selectedSubAccount = 'all'; currentPage = 1;
   document.getElementById('app').style.display = 'none';
+  document.getElementById('component-login').style.display = '';
   document.getElementById('login-screen').style.display = '';
   document.body.removeAttribute('data-role');
   document.getElementById('login-password').value = '';
   document.getElementById('login-role').value = 'admin';
   document.getElementById('user-select-group').style.display = 'none';
 }
+
+// ==================== SESSION RESTORE ON PAGE LOAD ====================
+async function restoreSession() {
+  const saved = getSavedSession();
+  if (!saved || !saved.token) {
+    document.getElementById('component-login').style.display = '';
+    return;
+  }
+
+  // Validate the token is still valid by calling a protected endpoint
+  sessionToken = saved.token;
+  try {
+    const response = await fetch('/api/data', {
+      headers: getAuthHeaders()
+    });
+    if (response.ok) {
+      // Session is valid — restore state
+      currentRole = saved.role;
+      currentUser = saved.userKey;
+      const serverData = await response.json();
+      if (serverData) {
+        usersData = serverData;
+        localStorage.setItem('ipon_challenge_v1', JSON.stringify(usersData));
+      }
+      setupDashboardUI();
+      console.log('✅ Session restored from localStorage');
+    } else {
+      // Token expired or invalid
+      clearSession();
+      document.getElementById('component-login').style.display = '';
+    }
+  } catch (err) {
+    console.error('Session restore failed:', err);
+    clearSession();
+    document.getElementById('component-login').style.display = '';
+  }
+}
+
+restoreSession();
 
 // ==================== USER MANAGEMENT ====================
 function renderUserMgmtTable() {
@@ -811,9 +927,8 @@ function renderUserMgmtTable() {
     const u = usersData[uK];
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td data-label="ID"><strong>${uK}</strong></td>
-      <td data-label="Name">${u.name}</td>
-      <td data-label="Password"><code class="password-sm">${u.password}</code></td>
+      <td data-label="Name"><strong>${u.name}</strong></td>
+      <td data-label="Password"><code class="password-sm">${u.password || '••••••••'}</code></td>
       <td data-label="Accounts">
         <div style="display: flex; flex-direction: column; gap: 0.4rem;">
           ${Object.keys(u.subAccounts).map(sK => `
@@ -842,19 +957,26 @@ function renderUserMgmtTable() {
 window.openEditUser = function (uK) {
   const u = usersData[uK];
   document.getElementById('add-user-form').style.display = '';
-  document.getElementById('user-form-title').textContent = 'Edit User: ' + uK;
-  document.getElementById('new-user-id').value = uK;
+  document.getElementById('user-form-title').textContent = 'Edit User: ' + u.name;
+  document.getElementById('new-user-id').value = u.user_key || uK;
   document.getElementById('new-user-id').disabled = true;
   document.getElementById('new-user-name').value = u.name;
-  document.getElementById('new-user-password').value = u.password;
+  document.getElementById('new-user-password').value = u.password || '';
 };
 
 window.deleteUser = async function (uK) {
   if (await showDialog('Delete User', `Are you sure you want to delete user "${uK}"? All their data will be lost forever.`, 'confirm', 'danger')) {
-    delete usersData[uK];
-    saveData();
-    renderUserMgmtTable();
-    populateUserDropdown();
+    try {
+      const res = await fetch(`/api/users/${uK}`, { method: 'DELETE', headers: getAuthHeaders() });
+      if (!res.ok) throw new Error(await res.text());
+      await loadData();
+      renderUserMgmtTable();
+      populateUserDropdown();
+      notyf.success('User deleted successfully.');
+    } catch (err) {
+      console.error(err);
+      notyf.error('Failed to delete user.');
+    }
   }
 };
 
@@ -862,16 +984,37 @@ async function saveUser() {
   const i = document.getElementById('new-user-id').value.trim().toLowerCase();
   const n = document.getElementById('new-user-name').value.trim();
   const p = document.getElementById('new-user-password').value.trim();
-  if (!i || !n || !p) { await showDialog('Missing Info', 'Please fill all user fields.', 'alert', 'danger'); return; }
-  if (document.getElementById('new-user-id').disabled) {
-    usersData[i].name = n; usersData[i].password = p;
-  } else {
-    if (usersData[i]) { await showDialog('User Exists', 'This username is already taken.', 'alert', 'danger'); return; }
-    usersData[i] = { name: n, password: p, subAccounts: {} };
+  if (!i || !n) { await showDialog('Missing Info', 'Please fill all user fields.', 'alert', 'danger'); return; }
+  
+  const isEdit = document.getElementById('new-user-id').disabled;
+  if (!isEdit && !p) { await showDialog('Missing Info', 'Password is required for new users.', 'alert', 'danger'); return; }
+  
+  const url = isEdit ? `/api/users/${i}` : '/api/users';
+  const method = isEdit ? 'PUT' : 'POST';
+  
+  try {
+    const res = await fetch(url, {
+      method,
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ id: i, name: n, password: p })
+    });
+    
+    if (!res.ok) {
+      const errData = await res.json();
+      notyf.error(errData.error || 'Failed to save user.');
+      return;
+    }
+    
+    await loadData();
+    renderUserMgmtTable();
+    populateUserDropdown();
+    document.getElementById('add-user-form').style.display = 'none';
+    refreshDashboard();
+    notyf.success(isEdit ? 'User updated successfully.' : 'User created successfully.');
+  } catch (err) {
+    console.error(err);
+    notyf.error('An unexpected error occurred.');
   }
-  saveData(); renderUserMgmtTable(); populateUserDropdown();
-  document.getElementById('add-user-form').style.display = 'none';
-  refreshDashboard(); // Ensure main view updates if editing current user
 }
 
 window.openAddSubAccount = function (uK) {
@@ -897,10 +1040,17 @@ window.openEditSubAccount = function (uK, sK) {
 
 window.deleteSubAccount = async function (uK, sK) {
   if (await showDialog('Delete Account', 'Are you sure you want to delete this specific savings goal? This cannot be undone.', 'confirm', 'danger')) {
-    delete usersData[uK].subAccounts[sK];
-    saveData();
-    renderUserMgmtTable();
-    refreshDashboard();
+    try {
+      const res = await fetch(`/api/subaccounts/${sK}`, { method: 'DELETE', headers: getAuthHeaders() });
+      if (!res.ok) throw new Error('Failed to delete sub-account');
+      await loadData();
+      renderUserMgmtTable();
+      refreshDashboard();
+      notyf.success('Savings goal deleted.');
+    } catch (err) {
+      console.error(err);
+      notyf.error('Failed to delete sub-account.');
+    }
   }
 };
 
@@ -913,27 +1063,41 @@ async function submitSubAccount() {
 
   if (!l || isNaN(g)) { await showDialog('Invalid Data', 'Please provide a valid label and goal amount.', 'alert', 'danger'); return; }
 
-  if (sK) {
-    // Edit existing
-    const sa = usersData[uK].subAccounts[sK];
-    sa.label = l;
-    sa.goal = g;
-    sa.dailyDeposit = isNaN(d) ? 0 : d;
-  } else {
-    // Add new
-    const nK = l.toLowerCase().replace(/\s+/g, '_') + '_' + Date.now();
-    usersData[uK].subAccounts[nK] = {
-      label: l,
-      goal: g,
-      dailyDeposit: isNaN(d) ? 0 : d,
-      deposits: []
-    };
-  }
+  const data = {
+    label: l,
+    goal: g,
+    daily_deposit: isNaN(d) ? 0 : d
+  };
 
-  saveData();
-  document.getElementById('subaccount-modal').style.display = 'none';
-  renderUserMgmtTable();
-  refreshDashboard();
+  try {
+    let url, method;
+    if (sK) {
+      url = `/api/subaccounts/${sK}`;
+      method = 'PUT';
+    } else {
+      url = '/api/subaccounts';
+      method = 'POST';
+      data.user_id = uK;
+      data.id = l.toLowerCase().replace(/\s+/g, '_') + '_' + Date.now();
+    }
+
+    const res = await fetch(url, {
+      method,
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data)
+    });
+
+    if (!res.ok) throw new Error('Failed to save sub-account');
+
+    await loadData();
+    document.getElementById('subaccount-modal').style.display = 'none';
+    renderUserMgmtTable();
+    refreshDashboard();
+    notyf.success(sK ? 'Savings goal updated.' : 'Sub-account created successfully.');
+  } catch (err) {
+    console.error(err);
+    notyf.error('Failed to save sub-account.');
+  }
 }
 
 // ==================== SYSTEM SETTINGS: DEMO DATA ====================
@@ -946,17 +1110,29 @@ async function loadDemoData() {
     };
 
     // Keep existing admin but ensure these demo users exist
-    Object.keys(demoUsers).forEach(uK => {
+    // Create users if they don't exist
+    for (const uK of Object.keys(demoUsers)) {
       if (!usersData[uK]) {
-        usersData[uK] = { name: demoUsers[uK].name, password: demoUsers[uK].password, subAccounts: {} };
+        await fetch('/api/users', {
+          method: 'POST', headers: getAuthHeaders(),
+          body: JSON.stringify({ id: uK, name: demoUsers[uK].name, password: demoUsers[uK].password })
+        });
       }
-      Object.keys(demoUsers[uK].subAccounts).forEach(saK => {
-        const sa = demoUsers[uK].subAccounts[saK];
-        if (!usersData[uK].subAccounts[saK]) {
-          usersData[uK].subAccounts[saK] = { label: sa.label, goal: sa.goal, dailyDeposit: sa.dailyDeposit, deposits: [] };
+      
+      // Create subaccounts if they don't exist
+      for (const saK of Object.keys(demoUsers[uK].subAccounts)) {
+        if (!usersData[uK] || !usersData[uK].subAccounts[saK]) {
+          const sa = demoUsers[uK].subAccounts[saK];
+          await fetch('/api/subaccounts', {
+            method: 'POST', headers: getAuthHeaders(),
+            body: JSON.stringify({ id: saK, user_id: uK, label: sa.label, goal: sa.goal, daily_deposit: sa.dailyDeposit })
+          });
         }
-      });
-    });
+      }
+    }
+    
+    // Refresh to get new IDs
+    await loadData();
 
     // Generate 120 random transactions over the last 6 months
     const allSAKeys = [];
@@ -964,7 +1140,11 @@ async function loadDemoData() {
       Object.keys(usersData[uK].subAccounts).forEach(saK => allSAKeys.push({ uK, saK }));
     });
 
+    if (allSAKeys.length === 0) return;
+
     const now = new Date();
+    const txPromises = [];
+    
     for (let i = 0; i < 120; i++) {
       const randomSA = allSAKeys[Math.floor(Math.random() * allSAKeys.length)];
       const randomDaysAgo = Math.floor(Math.random() * 180); // within 6 months
@@ -972,29 +1152,24 @@ async function loadDemoData() {
       date.setDate(date.getDate() - randomDaysAgo);
       const amount = Math.floor(Math.random() * 500) + 50;
 
-      usersData[randomSA.uK].subAccounts[randomSA.saK].deposits.push({
-        date: date.toISOString().split('T')[0],
-        amount: amount
-      });
+      txPromises.push(fetch('/api/transactions', {
+        method: 'POST', headers: getAuthHeaders(),
+        body: JSON.stringify({
+          sub_account_id: randomSA.saK,
+          user_id: randomSA.uK,
+          amount: amount,
+          date: date.toISOString().split('T')[0]
+        })
+      }));
     }
 
-    // Apply "catch-up" interest for demo months
-    const interestLabel = "Interest Earned";
-    Object.keys(usersData).forEach(uK => {
-      Object.keys(usersData[uK].subAccounts).forEach(saK => {
-        const sa = usersData[uK].subAccounts[saK];
-        // For each of the last 6 months, add interest if applicable
-        for (let m = 1; m <= 6; m++) {
-          const d = new Date(now.getFullYear(), now.getMonth() - m + 1, 1);
-          const dStr = d.toISOString().split('T')[0];
-          const balance = sa.deposits.filter(tx => new Date(tx.date) < d).reduce((s, tx) => s + tx.amount, 0);
-          const interest = Math.floor(balance * MONTHLY_RATE * 100) / 100;
-          if (interest > 0) sa.deposits.push({ date: dStr, amount: interest, label: interestLabel });
-        }
-      });
-    });
+    await Promise.all(txPromises);
 
-    saveData();
+    // Refresh again to calculate interest properly
+    await loadData();
+    await applyMonthlyInterest(); // will apply and save properly
+
+    await loadData();
     refreshDashboard();
     populateUserFilter();
     populateSubAccountSelector();
@@ -1047,10 +1222,16 @@ document.getElementById('sa-details-close').addEventListener('click', () => {
 
 async function clearAllData() {
   if (await showDialog('CRITICAL ACTION', 'Are you sure you want to PERMANENTLY CLEAR all sub-accounts and transaction history from the cloud? This cannot be undone.', 'confirm', 'danger')) {
+    const delPromises = [];
     Object.keys(usersData).forEach(uK => {
-      usersData[uK].subAccounts = {};
+      Object.keys(usersData[uK].subAccounts).forEach(saK => {
+        delPromises.push(fetch(`/api/subaccounts/${saK}`, { method: 'DELETE', headers: getAuthHeaders() }));
+      });
     });
-    saveData();
+    
+    await Promise.all(delPromises);
+    
+    await loadData();
     refreshDashboard();
     populateSubAccountSelector();
     await showDialog('System Reset', 'All transaction data has been cleared.', 'alert', 'info');
@@ -1058,10 +1239,10 @@ async function clearAllData() {
   }
 }
 
-function applyMonthlyInterest() {
+async function applyMonthlyInterest() {
   const now = new Date();
   const interestLabel = "Interest Earned";
-  let changed = false;
+  const newTxs = [];
 
   Object.keys(usersData).forEach(uK => {
     Object.keys(usersData[uK].subAccounts).forEach(saK => {
@@ -1087,8 +1268,15 @@ function applyMonthlyInterest() {
 
           const interest = Math.floor(balanceBefore * MONTHLY_RATE * 100) / 100;
           if (interest > 0) {
+            newTxs.push({
+              sub_account_id: saK,
+              user_id: uK,
+              amount: interest,
+              date: dStr,
+              label: interestLabel
+            });
+            // Temporarily push locally so sequential months calc correct balance
             sa.deposits.push({ date: dStr, amount: interest, label: interestLabel });
-            changed = true;
           }
         }
         // Move to next month
@@ -1097,7 +1285,16 @@ function applyMonthlyInterest() {
     });
   });
 
-  if (changed) saveData();
+  if (newTxs.length > 0) {
+    const promises = newTxs.map(tx => fetch('/api/transactions', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(tx)
+    }));
+    await Promise.all(promises);
+    await loadData();
+    refreshDashboard();
+  }
 }
 
 function downloadCSV() {
@@ -1127,9 +1324,18 @@ window.openEditTransaction = function (uK, sK, idx) {
 
 window.deleteTransaction = async function (uK, sK, idx) {
   if (await showDialog('Delete Transaction', 'Are you sure you want to delete this record? This will permanently remove it from history.', 'confirm', 'danger')) {
-    usersData[uK].subAccounts[sK].deposits.splice(idx, 1);
-    saveData();
-    refreshDashboard();
+    try {
+      const tx = usersData[uK].subAccounts[sK].deposits[idx];
+      const res = await fetch(`/api/transactions/${tx.id}`, { method: 'DELETE', headers: getAuthHeaders() });
+      if (!res.ok) throw new Error('Failed to delete transaction');
+      
+      await loadData();
+      refreshDashboard();
+      notyf.success('Transaction deleted.');
+    } catch (err) {
+      console.error(err);
+      notyf.error('Failed to delete transaction.');
+    }
   }
 };
 
@@ -1145,10 +1351,24 @@ async function submitEditTransaction() {
     return;
   }
 
-  usersData[uK].subAccounts[sK].deposits[idx] = { date, amount };
-  saveData();
-  document.getElementById('edit-tx-modal').style.display = 'none';
-  refreshDashboard();
+  try {
+    const tx = usersData[uK].subAccounts[sK].deposits[idx];
+    const res = await fetch(`/api/transactions/${tx.id}`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ amount, date })
+    });
+    
+    if (!res.ok) throw new Error('Failed to edit transaction');
+    
+    await loadData();
+    document.getElementById('edit-tx-modal').style.display = 'none';
+    refreshDashboard();
+    notyf.success('Transaction updated successfully.');
+  } catch (err) {
+    console.error(err);
+    notyf.error('Failed to edit transaction.');
+  }
 }
 
 // ==================== THEME & EVENTS ====================
@@ -1161,7 +1381,8 @@ function toggleTheme() {
   renderCharts();
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+// Initialize all event listeners (runs immediately since app.js is loaded after components)
+(function initEventListeners() {
   const theme = localStorage.getItem('ipon-theme') || 'light';
   document.documentElement.setAttribute('data-theme', theme);
   document.getElementById('icon-sun').style.display = theme === 'dark' ? 'none' : '';
@@ -1219,6 +1440,8 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('cancel-user-btn').addEventListener('click', () => { document.getElementById('add-user-form').style.display = 'none'; });
   document.getElementById('submit-user-btn').addEventListener('click', saveUser);
 
+  document.getElementById('sa-modal-close').addEventListener('click', () => { document.getElementById('subaccount-modal').style.display = 'none'; });
+  document.getElementById('sa-modal-cancel').addEventListener('click', () => { document.getElementById('subaccount-modal').style.display = 'none'; });
   document.getElementById('sa-modal-submit').addEventListener('click', submitSubAccount);
 
   document.getElementById('edit-tx-close').addEventListener('click', () => { document.getElementById('edit-tx-modal').style.display = 'none'; });
@@ -1264,7 +1487,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-clear-data').addEventListener('click', clearAllData);
 
   document.querySelectorAll('.modal-overlay').forEach(m => m.addEventListener('click', e => { if (e.target === e.currentTarget && e.target.id !== 'tutorial-modal') e.target.style.display = 'none'; }));
-});
+})();
 
 function populateUserDropdown() {
   const el = document.getElementById('login-user'); el.innerHTML = '';
