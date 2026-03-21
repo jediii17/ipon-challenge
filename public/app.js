@@ -774,6 +774,7 @@ async function handleLogin() {
 
   setupDashboardUI();
   checkTutorial();
+  history.pushState(null, '', '/dashboard');
 }
 
 // Reusable UI setup for both login and session restore
@@ -878,6 +879,7 @@ function handleLogout() {
   document.getElementById('login-password').value = '';
   document.getElementById('login-role').value = 'admin';
   document.getElementById('user-select-group').style.display = 'none';
+  history.pushState(null, '', '/login');
 }
 
 // ==================== SESSION RESTORE ON PAGE LOAD ====================
@@ -885,6 +887,7 @@ async function restoreSession() {
   const saved = getSavedSession();
   if (!saved || !saved.token) {
     document.getElementById('component-login').style.display = '';
+    history.replaceState(null, '', '/login');
     return;
   }
 
@@ -905,15 +908,20 @@ async function restoreSession() {
       }
       setupDashboardUI();
       console.log('✅ Session restored from localStorage');
+      if (window.location.pathname === '/' || window.location.pathname === '/login') {
+        history.replaceState(null, '', '/dashboard');
+      }
     } else {
       // Token expired or invalid
       clearSession();
       document.getElementById('component-login').style.display = '';
+      history.replaceState(null, '', '/login');
     }
   } catch (err) {
     console.error('Session restore failed:', err);
     clearSession();
     document.getElementById('component-login').style.display = '';
+    history.replaceState(null, '', '/login');
   }
 }
 
@@ -1101,82 +1109,6 @@ async function submitSubAccount() {
 }
 
 // ==================== SYSTEM SETTINGS: DEMO DATA ====================
-async function loadDemoData() {
-  if (await showDialog('Load Demo Data', 'This will add 120+ sample transactions across multiple user accounts for testing. Continue?', 'confirm')) {
-    const demoUsers = {
-      sed: { name: 'Sed', password: '429Sed924', subAccounts: { 'sed_vacation': { label: 'Vacation', goal: 50000, dailyDeposit: 50 }, 'sed_crypto': { label: 'Crypto', goal: 20000, dailyDeposit: 20 } } },
-      emz: { name: 'Emz', password: '731Emily137', subAccounts: { 'emz_savings': { label: 'General Savings', goal: 30000, dailyDeposit: 30 }, 'emz_house': { label: 'House Downpayment', goal: 200000, dailyDeposit: 150 } } },
-      jed: { name: 'Jed', password: 'pass123', subAccounts: { 'jed_school': { label: 'School Fees', goal: 15000, dailyDeposit: 15 }, 'jed_bike': { label: 'Mountain Bike', goal: 8000, dailyDeposit: 10 } } }
-    };
-
-    // Keep existing admin but ensure these demo users exist
-    // Create users if they don't exist
-    for (const uK of Object.keys(demoUsers)) {
-      if (!usersData[uK]) {
-        await fetch('/api/users', {
-          method: 'POST', headers: getAuthHeaders(),
-          body: JSON.stringify({ id: uK, name: demoUsers[uK].name, password: demoUsers[uK].password })
-        });
-      }
-      
-      // Create subaccounts if they don't exist
-      for (const saK of Object.keys(demoUsers[uK].subAccounts)) {
-        if (!usersData[uK] || !usersData[uK].subAccounts[saK]) {
-          const sa = demoUsers[uK].subAccounts[saK];
-          await fetch('/api/subaccounts', {
-            method: 'POST', headers: getAuthHeaders(),
-            body: JSON.stringify({ id: saK, user_id: uK, label: sa.label, goal: sa.goal, daily_deposit: sa.dailyDeposit })
-          });
-        }
-      }
-    }
-    
-    // Refresh to get new IDs
-    await loadData();
-
-    // Generate 120 random transactions over the last 6 months
-    const allSAKeys = [];
-    Object.keys(usersData).forEach(uK => {
-      Object.keys(usersData[uK].subAccounts).forEach(saK => allSAKeys.push({ uK, saK }));
-    });
-
-    if (allSAKeys.length === 0) return;
-
-    const now = new Date();
-    const txPromises = [];
-    
-    for (let i = 0; i < 120; i++) {
-      const randomSA = allSAKeys[Math.floor(Math.random() * allSAKeys.length)];
-      const randomDaysAgo = Math.floor(Math.random() * 180); // within 6 months
-      const date = new Date(now);
-      date.setDate(date.getDate() - randomDaysAgo);
-      const amount = Math.floor(Math.random() * 500) + 50;
-
-      txPromises.push(fetch('/api/transactions', {
-        method: 'POST', headers: getAuthHeaders(),
-        body: JSON.stringify({
-          sub_account_id: randomSA.saK,
-          user_id: randomSA.uK,
-          amount: amount,
-          date: date.toISOString().split('T')[0]
-        })
-      }));
-    }
-
-    await Promise.all(txPromises);
-
-    // Refresh again to calculate interest properly
-    await loadData();
-    await applyMonthlyInterest(); // will apply and save properly
-
-    await loadData();
-    refreshDashboard();
-    populateUserFilter();
-    populateSubAccountSelector();
-    await showDialog('Success', '120 Demo Transactions + Interest loaded!', 'alert', 'info');
-    document.getElementById('settings-modal').style.display = 'none';
-  }
-}
 
 function openSubAccountDetails(uK, saK) {
   const sa = usersData[uK].subAccounts[saK];
@@ -1483,7 +1415,6 @@ function toggleTheme() {
 
   document.getElementById('btn-open-settings').addEventListener('click', () => { document.getElementById('settings-modal').style.display = 'flex'; });
   document.getElementById('settings-close').addEventListener('click', () => { document.getElementById('settings-modal').style.display = 'none'; });
-  document.getElementById('btn-load-demo').addEventListener('click', loadDemoData);
   document.getElementById('btn-clear-data').addEventListener('click', clearAllData);
 
   document.querySelectorAll('.modal-overlay').forEach(m => m.addEventListener('click', e => { if (e.target === e.currentTarget && e.target.id !== 'tutorial-modal') e.target.style.display = 'none'; }));

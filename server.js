@@ -8,9 +8,11 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const { createClient } = require('@supabase/supabase-js');
+const jwt = require('jsonwebtoken');
 
 const app = express();
 const port = process.env.PORT || 3000;
+const JWT_SECRET = process.env.SESSION_SECRET || 'fallback_secret_for_ipon_challenge_123';
 
 const EMAIL_DOMAIN = '@iponchallenge.com';
 
@@ -91,12 +93,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use('/views', express.static(path.join(__dirname, 'views')));
 
 // ================= SESSION TOKEN STORE =================
-// In-memory session store (in production, use Redis or DB-backed sessions)
-const sessions = new Map();
-
-function generateToken() {
-  return crypto.randomBytes(32).toString('hex');
-}
+// Using JSON Web Tokens (JWT) for stateless serverless auth
 
 // Middleware: Verify session token for protected routes
 function requireAuth(req, res, next) {
@@ -106,15 +103,14 @@ function requireAuth(req, res, next) {
   }
 
   const token = authHeader.split(' ')[1];
-  const session = sessions.get(token);
 
-  if (!session) {
+  try {
+    const session = jwt.verify(token, JWT_SECRET);
+    req.session = session;
+    next();
+  } catch (err) {
     return res.status(401).json({ error: 'Invalid or expired session. Please log in again.' });
   }
-
-  // Attach session info to request
-  req.session = session;
-  next();
 }
 
 // ================= HELPER =================
@@ -170,18 +166,16 @@ app.post('/api/login', loginLimiter, async (req, res) => {
       return res.status(401).json({ success: false, message });
     }
 
-    // Generate a session token
-    const token = generateToken();
+    // Generate a stateless session token
     const sessionData = {
       role: role === 'admin' ? 'admin' : 'user',
       userKey: role === 'admin' ? null : userKey,
       userName: data.user?.user_metadata?.display_name || userKey,
       createdAt: Date.now()
     };
-    sessions.set(token, sessionData);
-
-    // Auto-expire session after 24 hours
-    setTimeout(() => sessions.delete(token), 24 * 60 * 60 * 1000);
+    
+    // Sign JWT (expires in 24 hours)
+    const token = jwt.sign(sessionData, JWT_SECRET, { expiresIn: '24h' });
 
     if (role === 'admin') {
       return res.json({ success: true, role: 'admin', token });
@@ -203,11 +197,7 @@ app.post('/api/login', loginLimiter, async (req, res) => {
 
 // Logout endpoint — invalidates session
 app.post('/api/logout', (req, res) => {
-  const authHeader = req.headers.authorization;
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    const token = authHeader.split(' ')[1];
-    sessions.delete(token);
-  }
+  // Stateless JWT relies on frontend to discard the token
   res.json({ success: true });
 });
 
