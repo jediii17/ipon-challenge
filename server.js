@@ -446,7 +446,7 @@ app.delete('/api/transactions/:id', requireAuth, requireAdmin, async (req, res) 
 });
 
 // Explicit route fallback to index.html for Single Page App behavior
-app.get('/{*path}', (req, res) => {
+app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
