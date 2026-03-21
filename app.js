@@ -37,23 +37,12 @@ let usersData = {
   },
 };
 
-// ==================== FIREBASE CONFIGURATION ====================
-// TODO: Replace with your actual Firebase config once you create your project
-const firebaseConfig = {
-  apiKey: "PASTE_YOUR_API_KEY_HERE",
-  authDomain: "PASTE_YOUR_PROJECT_ID_HERE.firebaseapp.com",
-  projectId: "PASTE_YOUR_PROJECT_ID_HERE",
-  storageBucket: "PASTE_YOUR_PROJECT_ID_HERE.appspot.com",
-  messagingSenderId: "PASTE_YOUR_SENDER_ID_HERE",
-  appId: "PASTE_YOUR_APP_ID_HERE"
-};
-
 // Initialize Firebase
 let db;
 if (typeof firebase !== 'undefined') {
   firebase.initializeApp(firebaseConfig);
   db = firebase.firestore();
-  
+
   // Enable persistent offline storage (optional but good for mobile)
   db.enablePersistence().catch((err) => {
     if (err.code == 'failed-precondition') {
@@ -68,7 +57,7 @@ if (typeof firebase !== 'undefined') {
 async function saveData() {
   // Save to LocalStorage as a fallback
   localStorage.setItem('ipon_challenge_v1', JSON.stringify(usersData));
-  
+
   // Save to Firebase Cloud
   if (db) {
     try {
@@ -96,10 +85,10 @@ function loadData() {
       if (doc.exists) {
         console.log("Cloud data updated, syncing locally...");
         usersData = doc.data();
-        
+
         // Update LocalStorage to keep them in sync
         localStorage.setItem('ipon_challenge_v1', JSON.stringify(usersData));
-        
+
         // Refresh UI if we are already logged in
         if (currentUser || currentRole === 'admin') {
           refreshDashboard();
@@ -147,7 +136,7 @@ function showDialog(title, message, type = 'alert', style = 'info') {
 
     titleEl.textContent = title;
     messageEl.textContent = message;
-    
+
     // Set Icon
     iconCont.className = 'dialog-icon-container ' + style;
     if (style === 'danger') {
@@ -185,7 +174,7 @@ function computeSubAccountData(subAccount) {
   }
 
   const firstDepositDate = new Date(deposits[0].date);
-  const now = new Date(); 
+  const now = new Date();
   const monthsElapsed = Math.max(0,
     (now.getFullYear() - firstDepositDate.getFullYear()) * 12 +
     (now.getMonth() - firstDepositDate.getMonth())
@@ -215,7 +204,7 @@ function getAllSubAccountsForView() {
     const user = usersData[userKey];
     if (!user) return; // Skip if user not found (safety check)
     if (!user.subAccounts) user.subAccounts = {}; // Safety check
-    
+
     Object.keys(user.subAccounts).forEach(saKey => {
       const sa = user.subAccounts[saKey];
       if (!sa) return;
@@ -238,17 +227,17 @@ function getAllSubAccountsForView() {
 
 function getFilteredSubAccounts() {
   let all = getAllSubAccountsForView();
-  
+
   // Filter by user first if not 'all'
   if (currentRole === 'admin' && selectedUser !== 'all') {
     all = all.filter(sa => sa.userKey === selectedUser);
   }
-  
+
   // Then filter by sub-account if not 'all'
   if (selectedSubAccount !== 'all') {
     return all.filter(sa => sa.saKey === selectedSubAccount);
   }
-  
+
   return all;
 }
 
@@ -319,7 +308,7 @@ function renderProgressCards() {
   const subs = getFilteredSubAccounts();
   const grid = document.getElementById('progress-grid');
   grid.innerHTML = ''; // Always clear first
-  
+
   if (subs.length === 0) {
     grid.innerHTML = `
       <div style="grid-column: 1 / -1; text-align: center; padding: 4rem 2rem; background: var(--bg-card); border: 2px dashed var(--border); border-radius: var(--radius); color: var(--text-muted);">
@@ -429,7 +418,7 @@ function renderTransactionTable() {
       const isNegative = tx.amount < 0;
       const amountClass = isNegative ? 'amount-cell negative' : 'amount-cell';
       const amountPrefix = isNegative ? '' : '+';
-      
+
       tr.innerHTML = `
         <td data-label="Date">${formatDate(tx.date)}</td>
         <td data-label="User">${tx.userName}</td>
@@ -504,7 +493,7 @@ function renderCharts() {
       monthsSet.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
     });
   });
-  
+
   // If no data, show at least current month
   if (monthsSet.size === 0) {
     const now = new Date();
@@ -520,7 +509,7 @@ function renderCharts() {
   // Dynamic Width Logic: Force more spreading to ensure horizontal scrolling
   const minWidthPerMonth = 100; // Balanced for fit vs scroll
   const totalMinWidth = Math.max(monthLabels.length * minWidthPerMonth, 500);
-  
+
   const lWrapper = document.getElementById('line-chart-wrapper');
   const bWrapper = document.getElementById('bar-chart-wrapper');
   lWrapper.style.width = totalMinWidth + 'px';
@@ -566,16 +555,16 @@ function renderCharts() {
   const commonOptions = {
     responsive: true, maintainAspectRatio: false,
     plugins: {
-      legend: { 
-        position: 'bottom', 
+      legend: {
+        position: 'bottom',
         align: 'start',
-        labels: { 
-          color: fontColor, 
-          font: { family: "'Inter', sans-serif", size: 11 }, 
-          usePointStyle: true, 
-          pointStyle: 'circle', 
-          padding: 12 
-        } 
+        labels: {
+          color: fontColor,
+          font: { family: "'Inter', sans-serif", size: 11 },
+          usePointStyle: true,
+          pointStyle: 'circle',
+          padding: 12
+        }
       },
       tooltip: {
         backgroundColor: 'rgba(15,23,42,0.9)', padding: 12, cornerRadius: 8,
@@ -610,26 +599,26 @@ function renderCharts() {
 function populateSubAccountSelector() {
   const select = document.getElementById('subaccount-select');
   select.innerHTML = '<option value="all">All Accounts</option>';
-  
+
   const allSubs = getAllSubAccountsForView();
   let filtered = allSubs;
-  
+
   if (currentRole === 'admin' && selectedUser !== 'all') {
     filtered = allSubs.filter(sa => sa.userKey === selectedUser);
   }
-  
+
   filtered.forEach(sa => {
     const opt = document.createElement('option');
     opt.value = sa.saKey;
     opt.textContent = `${sa.label} (${sa.userName})`;
     select.appendChild(opt);
   });
-  
+
   // Reset selectedSubAccount if it's no longer in the filtered list
   if (selectedSubAccount !== 'all' && !filtered.find(sa => sa.saKey === selectedSubAccount)) {
     selectedSubAccount = 'all';
   }
-  
+
   select.value = selectedSubAccount;
 }
 
@@ -639,7 +628,7 @@ function populateUserFilter() {
     filter.style.display = 'none';
     return;
   }
-  
+
   filter.style.display = '';
   filter.innerHTML = '<option value="all">All Users</option>';
   Object.keys(usersData).forEach(uK => {
@@ -683,9 +672,9 @@ async function submitDeposit() {
   const s = document.getElementById('deposit-subaccount').value;
   const a = parseFloat(document.getElementById('deposit-amount').value);
   const d = document.getElementById('deposit-date').value;
-  if (!a || a <= 0 || !d) { 
-    await showDialog('Invalid Input', 'Common! Please enter a valid amount and date.', 'alert', 'danger'); 
-    return; 
+  if (!a || a <= 0 || !d) {
+    await showDialog('Invalid Input', 'Common! Please enter a valid amount and date.', 'alert', 'danger');
+    return;
   }
   usersData[u].subAccounts[s].deposits.push({ date: d, amount: a });
   saveData();
@@ -776,15 +765,15 @@ function showTutorialStep(idx) {
   const modal = document.getElementById('tutorial-modal');
   const card = modal.querySelector('.tutorial-card');
   const iconCont = document.getElementById('tutorial-icon-container');
-  
+
   // Reset highlighting
   document.querySelectorAll('.tutorial-highlight').forEach(el => el.classList.remove('tutorial-highlight'));
-  
+
   document.getElementById('tutorial-title').textContent = step.title;
   document.getElementById('tutorial-text').textContent = step.text;
   iconCont.innerHTML = step.icon;
   document.getElementById('tutorial-next').textContent = idx === tutorialSteps.length - 1 ? "Start Dashboard" : "Next Step →";
-  
+
   const dots = document.getElementById('tutorial-dots');
   dots.innerHTML = tutorialSteps.map((_, i) => `<div class="dot ${i === idx ? 'active' : ''}"></div>`).join('');
 }
@@ -850,7 +839,7 @@ function renderUserMgmtTable() {
   });
 }
 
-window.openEditUser = function(uK) {
+window.openEditUser = function (uK) {
   const u = usersData[uK];
   document.getElementById('add-user-form').style.display = '';
   document.getElementById('user-form-title').textContent = 'Edit User: ' + uK;
@@ -860,12 +849,12 @@ window.openEditUser = function(uK) {
   document.getElementById('new-user-password').value = u.password;
 };
 
-window.deleteUser = async function(uK) {
-  if (await showDialog('Delete User', `Are you sure you want to delete user "${uK}"? All their data will be lost forever.`, 'confirm', 'danger')) { 
-    delete usersData[uK]; 
-    saveData(); 
-    renderUserMgmtTable(); 
-    populateUserDropdown(); 
+window.deleteUser = async function (uK) {
+  if (await showDialog('Delete User', `Are you sure you want to delete user "${uK}"? All their data will be lost forever.`, 'confirm', 'danger')) {
+    delete usersData[uK];
+    saveData();
+    renderUserMgmtTable();
+    populateUserDropdown();
   }
 };
 
@@ -885,7 +874,7 @@ async function saveUser() {
   refreshDashboard(); // Ensure main view updates if editing current user
 }
 
-window.openAddSubAccount = function(uK) {
+window.openAddSubAccount = function (uK) {
   document.getElementById('subaccount-modal').style.display = '';
   document.getElementById('sa-modal-title').textContent = 'Add Account for ' + usersData[uK].name;
   document.getElementById('sa-edit-userid').value = uK;
@@ -895,7 +884,7 @@ window.openAddSubAccount = function(uK) {
   document.getElementById('sa-daily').value = 50;
 };
 
-window.openEditSubAccount = function(uK, sK) {
+window.openEditSubAccount = function (uK, sK) {
   const sa = usersData[uK].subAccounts[sK];
   document.getElementById('subaccount-modal').style.display = '';
   document.getElementById('sa-modal-title').textContent = 'Edit Account';
@@ -906,12 +895,12 @@ window.openEditSubAccount = function(uK, sK) {
   document.getElementById('sa-daily').value = sa.dailyDeposit || 0;
 };
 
-window.deleteSubAccount = async function(uK, sK) {
-  if (await showDialog('Delete Account', 'Are you sure you want to delete this specific savings goal? This cannot be undone.', 'confirm', 'danger')) { 
-    delete usersData[uK].subAccounts[sK]; 
-    saveData(); 
-    renderUserMgmtTable(); 
-    refreshDashboard(); 
+window.deleteSubAccount = async function (uK, sK) {
+  if (await showDialog('Delete Account', 'Are you sure you want to delete this specific savings goal? This cannot be undone.', 'confirm', 'danger')) {
+    delete usersData[uK].subAccounts[sK];
+    saveData();
+    renderUserMgmtTable();
+    refreshDashboard();
   }
 };
 
@@ -921,29 +910,29 @@ async function submitSubAccount() {
   const l = document.getElementById('sa-label').value.trim();
   const g = parseFloat(document.getElementById('sa-goal').value.toString().replace(/,/g, ''));
   const d = parseFloat(document.getElementById('sa-daily').value.toString().replace(/,/g, ''));
-  
+
   if (!l || isNaN(g)) { await showDialog('Invalid Data', 'Please provide a valid label and goal amount.', 'alert', 'danger'); return; }
-  
+
   if (sK) {
     // Edit existing
     const sa = usersData[uK].subAccounts[sK];
-    sa.label = l; 
-    sa.goal = g; 
+    sa.label = l;
+    sa.goal = g;
     sa.dailyDeposit = isNaN(d) ? 0 : d;
   } else {
     // Add new
     const nK = l.toLowerCase().replace(/\s+/g, '_') + '_' + Date.now();
-    usersData[uK].subAccounts[nK] = { 
-      label: l, 
-      goal: g, 
-      dailyDeposit: isNaN(d) ? 0 : d, 
-      deposits: [] 
+    usersData[uK].subAccounts[nK] = {
+      label: l,
+      goal: g,
+      dailyDeposit: isNaN(d) ? 0 : d,
+      deposits: []
     };
   }
-  
-  saveData(); 
+
+  saveData();
   document.getElementById('subaccount-modal').style.display = 'none';
-  renderUserMgmtTable(); 
+  renderUserMgmtTable();
   refreshDashboard();
 }
 
@@ -977,16 +966,16 @@ async function loadDemoData() {
 
     const now = new Date();
     for (let i = 0; i < 120; i++) {
-        const randomSA = allSAKeys[Math.floor(Math.random() * allSAKeys.length)];
-        const randomDaysAgo = Math.floor(Math.random() * 180); // within 6 months
-        const date = new Date(now);
-        date.setDate(date.getDate() - randomDaysAgo);
-        const amount = Math.floor(Math.random() * 500) + 50;
-        
-        usersData[randomSA.uK].subAccounts[randomSA.saK].deposits.push({
-            date: date.toISOString().split('T')[0],
-            amount: amount
-        });
+      const randomSA = allSAKeys[Math.floor(Math.random() * allSAKeys.length)];
+      const randomDaysAgo = Math.floor(Math.random() * 180); // within 6 months
+      const date = new Date(now);
+      date.setDate(date.getDate() - randomDaysAgo);
+      const amount = Math.floor(Math.random() * 500) + 50;
+
+      usersData[randomSA.uK].subAccounts[randomSA.saK].deposits.push({
+        date: date.toISOString().split('T')[0],
+        amount: amount
+      });
     }
 
     // Apply "catch-up" interest for demo months
@@ -996,11 +985,11 @@ async function loadDemoData() {
         const sa = usersData[uK].subAccounts[saK];
         // For each of the last 6 months, add interest if applicable
         for (let m = 1; m <= 6; m++) {
-            const d = new Date(now.getFullYear(), now.getMonth() - m + 1, 1);
-            const dStr = d.toISOString().split('T')[0];
-            const balance = sa.deposits.filter(tx => new Date(tx.date) < d).reduce((s,tx)=>s+tx.amount, 0);
-            const interest = Math.floor(balance * MONTHLY_RATE * 100) / 100;
-            if (interest > 0) sa.deposits.push({ date: dStr, amount: interest, label: interestLabel });
+          const d = new Date(now.getFullYear(), now.getMonth() - m + 1, 1);
+          const dStr = d.toISOString().split('T')[0];
+          const balance = sa.deposits.filter(tx => new Date(tx.date) < d).reduce((s, tx) => s + tx.amount, 0);
+          const interest = Math.floor(balance * MONTHLY_RATE * 100) / 100;
+          if (interest > 0) sa.deposits.push({ date: dStr, amount: interest, label: interestLabel });
         }
       });
     });
@@ -1019,18 +1008,18 @@ function openSubAccountDetails(uK, saK) {
   if (!sa) return;
 
   const computed = computeSubAccountData(sa);
-  
+
   document.getElementById('sa-details-title').textContent = sa.label;
   document.getElementById('sa-details-balance').textContent = formatPeso(computed.balance);
   document.getElementById('sa-details-goal').textContent = formatPeso(sa.goal);
   document.getElementById('sa-details-interest').textContent = formatPeso(computed.interest);
-  
+
   const tbody = document.getElementById('sa-details-tbody');
   tbody.innerHTML = '';
-  
+
   // Sort deposits by date descending
-  const deps = [...sa.deposits].sort((a,b) => new Date(b.date) - new Date(a.date));
-  
+  const deps = [...sa.deposits].sort((a, b) => new Date(b.date) - new Date(a.date));
+
   if (deps.length === 0) {
     tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;padding:1rem;color:var(--text-muted)">No transactions</td></tr>';
   } else {
@@ -1040,14 +1029,14 @@ function openSubAccountDetails(uK, saK) {
       tr.innerHTML = `
         <td>${formatDate(d.date)}</td>
         <td>${d.label || 'Deposit'}</td>
-        <td class="${isNeg ? 'negative' : ''}" style="font-weight:700; color:${isNeg?'var(--red)':'var(--green)'}">
+        <td class="${isNeg ? 'negative' : ''}" style="font-weight:700; color:${isNeg ? 'var(--red)' : 'var(--green)'}">
           ${isNeg ? '' : '+'}${formatPeso(d.amount)}
         </td>
       `;
       tbody.appendChild(tr);
     });
   }
-  
+
   document.getElementById('sa-details-modal').style.display = '';
 }
 
@@ -1080,9 +1069,9 @@ function applyMonthlyInterest() {
       if (sa.deposits.length === 0) return;
 
       // Find the first deposit date to know when to start interest
-      const sortedDeps = [...sa.deposits].sort((a,b) => new Date(a.date) - new Date(b.date));
+      const sortedDeps = [...sa.deposits].sort((a, b) => new Date(a.date) - new Date(b.date));
       const firstDepDate = new Date(sortedDeps[0].date);
-      
+
       // Start checking from the 1st of the month AFTER the first deposit
       let checkDate = new Date(firstDepDate.getFullYear(), firstDepDate.getMonth() + 1, 1);
       const currentMonthFirst = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -1090,12 +1079,12 @@ function applyMonthlyInterest() {
       while (checkDate <= currentMonthFirst) {
         const dStr = checkDate.toISOString().split('T')[0];
         const exists = sa.deposits.some(d => d.date === dStr && d.label === interestLabel);
-        
+
         if (!exists) {
           const balanceBefore = sa.deposits
             .filter(d => new Date(d.date) < checkDate)
             .reduce((sum, d) => sum + d.amount, 0);
-            
+
           const interest = Math.floor(balanceBefore * MONTHLY_RATE * 100) / 100;
           if (interest > 0) {
             sa.deposits.push({ date: dStr, amount: interest, label: interestLabel });
@@ -1126,7 +1115,7 @@ function downloadCSV() {
 }
 
 // ==================== TRANSACTION CRUD ====================
-window.openEditTransaction = function(uK, sK, idx) {
+window.openEditTransaction = function (uK, sK, idx) {
   const tx = usersData[uK].subAccounts[sK].deposits[idx];
   document.getElementById('edit-tx-user').value = uK;
   document.getElementById('edit-tx-sa').value = sK;
@@ -1136,7 +1125,7 @@ window.openEditTransaction = function(uK, sK, idx) {
   document.getElementById('edit-tx-modal').style.display = '';
 };
 
-window.deleteTransaction = async function(uK, sK, idx) {
+window.deleteTransaction = async function (uK, sK, idx) {
   if (await showDialog('Delete Transaction', 'Are you sure you want to delete this record? This will permanently remove it from history.', 'confirm', 'danger')) {
     usersData[uK].subAccounts[sK].deposits.splice(idx, 1);
     saveData();
@@ -1151,11 +1140,11 @@ async function submitEditTransaction() {
   const amount = parseFloat(document.getElementById('edit-tx-amount').value);
   const date = document.getElementById('edit-tx-date').value;
 
-  if (isNaN(amount) || !date) { 
+  if (isNaN(amount) || !date) {
     await showDialog('Invalid Input', 'Common! Please enter a valid amount and date.', 'alert', 'danger');
-    return; 
+    return;
   }
-  
+
   usersData[uK].subAccounts[sK].deposits[idx] = { date, amount };
   saveData();
   document.getElementById('edit-tx-modal').style.display = 'none';
@@ -1186,9 +1175,9 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   document.getElementById('login-btn').addEventListener('click', handleLogin);
-  document.getElementById('login-password').addEventListener('keydown', e => { 
+  document.getElementById('login-password').addEventListener('keydown', e => {
     document.getElementById('login-error').style.display = 'none';
-    if (e.key === 'Enter') handleLogin(); 
+    if (e.key === 'Enter') handleLogin();
   });
   document.getElementById('login-password').addEventListener('input', () => {
     document.getElementById('login-error').style.display = 'none';
@@ -1205,8 +1194,8 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   document.getElementById('subaccount-select').addEventListener('change', e => {
-    selectedSubAccount = e.target.value; 
-    currentPage = 1; 
+    selectedSubAccount = e.target.value;
+    currentPage = 1;
     refreshDashboard();
   });
 
