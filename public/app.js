@@ -4,7 +4,7 @@
 
 // ==================== CONFIG ====================
 const INTEREST_RATE = 0.02; // 2% per annum
-const MONTHLY_RATE = INTEREST_RATE / 12;
+const DAILY_RATE = INTEREST_RATE / 365;
 const SAVINGS_GOAL = 50000;
 
 // User data is loaded from the server — no credentials stored in frontend
@@ -249,6 +249,17 @@ function formatPeso(amount) {
 function formatDate(dateStr) {
   const d = new Date(dateStr);
   return d.toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+/**
+ * Ensures consistent YYYY-MM-DD from local date object
+ * Fixes timezone shift issues with toISOString()
+ */
+function toLocalDateString(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 }
 
 // ==================== COUNT-UP ANIMATION ====================
@@ -729,7 +740,7 @@ async function submitDeposit() {
 }
 
 function refreshDashboard() {
-  applyMonthlyInterest();
+  applyDailyInterest();
   renderCards();
   renderProgressCards();
   renderTransactionTable();
@@ -1171,8 +1182,9 @@ async function clearAllData() {
   }
 }
 
-async function applyMonthlyInterest() {
+async function applyDailyInterest() {
   const now = new Date();
+  const todayStr = toLocalDateString(now);
   const interestLabel = "Interest Earned";
   const newTxs = [];
 
@@ -1185,12 +1197,15 @@ async function applyMonthlyInterest() {
       const sortedDeps = [...sa.deposits].sort((a, b) => new Date(a.date) - new Date(b.date));
       const firstDepDate = new Date(sortedDeps[0].date);
 
-      // Start checking from the 1st of the month AFTER the first deposit
-      let checkDate = new Date(firstDepDate.getFullYear(), firstDepDate.getMonth() + 1, 1);
-      const currentMonthFirst = new Date(now.getFullYear(), now.getMonth(), 1);
+      // Start calculating interest from the day AFTER the first deposit
+      let checkDate = new Date(firstDepDate);
+      checkDate.setDate(checkDate.getDate() + 1);
+      
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
 
-      while (checkDate <= currentMonthFirst) {
-        const dStr = checkDate.toISOString().split('T')[0];
+      while (checkDate < today) {
+        const dStr = toLocalDateString(checkDate);
         const exists = sa.deposits.some(d => d.date === dStr && d.label === interestLabel);
 
         if (!exists) {
@@ -1198,7 +1213,8 @@ async function applyMonthlyInterest() {
             .filter(d => new Date(d.date) < checkDate)
             .reduce((sum, d) => sum + d.amount, 0);
 
-          const interest = Math.floor(balanceBefore * MONTHLY_RATE * 100) / 100;
+          // Daily interest = balance * (yearly% / 365)
+          const interest = Math.floor(balanceBefore * DAILY_RATE * 100) / 100;
           if (interest > 0) {
             newTxs.push({
               sub_account_id: saK,
@@ -1207,12 +1223,12 @@ async function applyMonthlyInterest() {
               date: dStr,
               label: interestLabel
             });
-            // Temporarily push locally so sequential months calc correct balance
+            // Temporarily push locally so sequential days calc correct balance
             sa.deposits.push({ date: dStr, amount: interest, label: interestLabel });
           }
         }
-        // Move to next month
-        checkDate.setMonth(checkDate.getMonth() + 1);
+        // Move to next day
+        checkDate.setDate(checkDate.getDate() + 1);
       }
     });
   });
