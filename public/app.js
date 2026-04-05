@@ -100,7 +100,7 @@ let currentUser = null; // user key
 let selectedUser = 'all'; // user key or 'all'
 let selectedSubAccount = 'all'; // sub-account key or 'all'
 let currentPage = 1;
-const ROWS_PER_PAGE = 8;
+const ROWS_PER_PAGE = 10;
 let lineChart = null;
 let barChart = null;
 
@@ -383,74 +383,68 @@ function renderProgressCards() {
   });
 }
 
-function renderTransactionTable() {
-  const subs = getFilteredSubAccounts();
+async function renderTransactionTable() {
   const tbody = document.getElementById('transaction-tbody');
-  const searchTerm = document.getElementById('table-search').value.toLowerCase();
+  const searchTerm = document.getElementById('table-search').value;
+  
+  // Show loading state
+  tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:2rem;"><div class="loading-spinner"></div><div style="margin-top:0.5rem;color:var(--text-muted)">Loading transactions...</div></td></tr>';
 
-  let allTx = [];
-  subs.forEach(sa => {
-    sa.deposits.forEach((dep, idx) => {
-      allTx.push({
-        date: dep.date,
-        userName: sa.userName,
-        userKey: sa.userKey,
-        saKey: sa.saKey,
-        saLabel: sa.label,
-        type: dep.label || 'Deposit',
-        amount: dep.amount,
-        index: idx,
+  try {
+    const params = new URLSearchParams({
+      page: currentPage,
+      limit: ROWS_PER_PAGE,
+      search: searchTerm,
+      user_id: selectedUser,
+      sub_account_id: selectedSubAccount
+    });
+
+    const res = await fetch(`/api/transactions?${params.toString()}`, {
+      headers: getAuthHeaders()
+    });
+    
+    if (!res.ok) throw new Error('Failed to fetch transactions');
+    
+    const { data, totalPages, totalCount } = await res.json();
+
+    tbody.innerHTML = '';
+    if (data.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:2rem;color:var(--text-muted)">No transactions found</td></tr>';
+    } else {
+      data.forEach(tx => {
+        const tr = document.createElement('tr');
+        const isNegative = parseFloat(tx.amount) < 0;
+        const amountClass = isNegative ? 'amount-cell negative' : 'amount-cell';
+        const amountPrefix = isNegative ? '' : '+';
+        
+        // Use the date from server (formatted as YYYY-MM-DD or similar)
+        const dateStr = tx.date.split('T')[0];
+
+        tr.innerHTML = `
+          <td data-label="Date">${formatDate(dateStr)}</td>
+          <td data-label="User">${tx.user_name}</td>
+          <td data-label="Type">${tx.label || 'Deposit'}</td>
+          <td data-label="Account">${tx.sub_account_label}</td>
+          <td data-label="Amount" class="${amountClass}">${amountPrefix}${formatPeso(tx.amount)}</td>
+          <td data-label="Actions" class="admin-only">
+            <div class="actions-cell">
+              <button class="btn-icon" onclick="openEditTransactionById('${tx.id}', '${tx.amount}', '${dateStr}')">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+              </button>
+              <button class="btn-icon btn-danger" onclick="deleteTransactionById('${tx.id}')">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+              </button>
+            </div>
+          </td>
+        `;
+        tbody.appendChild(tr);
       });
-    });
-  });
-
-  allTx.sort((a, b) => new Date(b.date) - new Date(a.date));
-
-  if (searchTerm) {
-    allTx = allTx.filter(tx =>
-      tx.userName.toLowerCase().includes(searchTerm) ||
-      tx.label.toLowerCase().includes(searchTerm) ||
-      tx.date.includes(searchTerm) ||
-      tx.amount.toString().includes(searchTerm)
-    );
+    }
+    renderPagination(totalPages);
+  } catch (err) {
+    console.error(err);
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:2rem;color:var(--red)">Error loading transactions</td></tr>';
   }
-
-  const totalPages = Math.max(1, Math.ceil(allTx.length / ROWS_PER_PAGE));
-  if (currentPage > totalPages) currentPage = totalPages;
-  const start = (currentPage - 1) * ROWS_PER_PAGE;
-  const pageTx = allTx.slice(start, start + ROWS_PER_PAGE);
-
-  tbody.innerHTML = '';
-  if (pageTx.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:2rem;color:var(--text-muted)">No transactions found</td></tr>';
-  } else {
-    pageTx.forEach(tx => {
-      const tr = document.createElement('tr');
-      const isNegative = tx.amount < 0;
-      const amountClass = isNegative ? 'amount-cell negative' : 'amount-cell';
-      const amountPrefix = isNegative ? '' : '+';
-
-      tr.innerHTML = `
-        <td data-label="Date">${formatDate(tx.date)}</td>
-        <td data-label="User">${tx.userName}</td>
-        <td data-label="Type">${tx.type}</td>
-        <td data-label="Account">${tx.saLabel}</td>
-        <td data-label="Amount" class="${amountClass}">${amountPrefix}${formatPeso(tx.amount)}</td>
-        <td data-label="Actions" class="admin-only">
-          <div class="actions-cell">
-            <button class="btn-icon" onclick="openEditTransaction('${tx.userKey}', '${tx.saKey}', ${tx.index})">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-            </button>
-            <button class="btn-icon btn-danger" onclick="deleteTransaction('${tx.userKey}', '${tx.saKey}', ${tx.index})">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-            </button>
-          </div>
-        </td>
-      `;
-      tbody.appendChild(tr);
-    });
-  }
-  renderPagination(totalPages);
 }
 
 function renderPagination(totalPages) {
@@ -458,27 +452,47 @@ function renderPagination(totalPages) {
   container.innerHTML = '';
   if (totalPages <= 1) return;
 
-  const prevBtn = document.createElement('button');
-  prevBtn.className = 'page-btn';
-  prevBtn.textContent = '‹';
-  prevBtn.disabled = currentPage === 1;
-  prevBtn.onclick = () => { currentPage--; renderTransactionTable(); };
-  container.appendChild(prevBtn);
+  const wrapper = document.createElement('div');
+  wrapper.className = 'pagination-wrapper';
 
-  for (let i = 1; i <= totalPages; i++) {
+  // Info text
+  const info = document.createElement('span');
+  info.className = 'pagination-info';
+  info.textContent = `Page ${currentPage} of ${totalPages}`;
+  
+  const buttonsGroup = document.createElement('div');
+  buttonsGroup.className = 'pagination-buttons';
+
+  const prevBtn = document.createElement('button');
+  prevBtn.className = 'page-btn nav-btn';
+  prevBtn.innerHTML = '‹';
+  prevBtn.disabled = currentPage === 1;
+  prevBtn.onclick = () => { if (currentPage > 1) { currentPage--; renderTransactionTable(); } };
+  buttonsGroup.appendChild(prevBtn);
+
+  // Pagination logic: show a window of pages
+  let startPage = Math.max(1, currentPage - 2);
+  let endPage = Math.min(totalPages, startPage + 4);
+  if (endPage - startPage < 4) startPage = Math.max(1, endPage - 4);
+
+  for (let i = startPage; i <= endPage; i++) {
     const btn = document.createElement('button');
     btn.className = 'page-btn' + (i === currentPage ? ' active' : '');
     btn.textContent = i;
     btn.onclick = () => { currentPage = i; renderTransactionTable(); };
-    container.appendChild(btn);
+    buttonsGroup.appendChild(btn);
   }
 
   const nextBtn = document.createElement('button');
-  nextBtn.className = 'page-btn';
-  nextBtn.textContent = '›';
+  nextBtn.className = 'page-btn nav-btn';
+  nextBtn.innerHTML = '›';
   nextBtn.disabled = currentPage === totalPages;
-  nextBtn.onclick = () => { currentPage++; renderTransactionTable(); };
-  container.appendChild(nextBtn);
+  nextBtn.onclick = () => { if (currentPage < totalPages) { currentPage++; renderTransactionTable(); } };
+  buttonsGroup.appendChild(nextBtn);
+
+  wrapper.appendChild(info);
+  wrapper.appendChild(buttonsGroup);
+  container.appendChild(wrapper);
 }
 
 // ==================== CHARTS ====================
@@ -1260,21 +1274,18 @@ function downloadCSV() {
 }
 
 // ==================== TRANSACTION CRUD ====================
-window.openEditTransaction = function (uK, sK, idx) {
-  const tx = usersData[uK].subAccounts[sK].deposits[idx];
-  document.getElementById('edit-tx-user').value = uK;
-  document.getElementById('edit-tx-sa').value = sK;
-  document.getElementById('edit-tx-index').value = idx;
-  document.getElementById('edit-tx-amount').value = tx.amount;
-  document.getElementById('edit-tx-date').value = tx.date;
+// ==================== TRANSACTION CRUD ====================
+window.openEditTransactionById = function (id, amount, date) {
+  document.getElementById('edit-tx-id').value = id;
+  document.getElementById('edit-tx-amount').value = amount;
+  document.getElementById('edit-tx-date').value = date;
   document.getElementById('edit-tx-modal').style.display = '';
 };
 
-window.deleteTransaction = async function (uK, sK, idx) {
+window.deleteTransactionById = async function (id) {
   if (await showDialog('Delete Transaction', 'Are you sure you want to delete this record? This will permanently remove it from history.', 'confirm', 'danger')) {
     try {
-      const tx = usersData[uK].subAccounts[sK].deposits[idx];
-      const res = await fetch(`/api/transactions/${tx.id}`, { method: 'DELETE', headers: getAuthHeaders() });
+      const res = await fetch(`/api/transactions/${id}`, { method: 'DELETE', headers: getAuthHeaders() });
       if (!res.ok) throw new Error('Failed to delete transaction');
       
       await loadData();
@@ -1288,9 +1299,7 @@ window.deleteTransaction = async function (uK, sK, idx) {
 };
 
 async function submitEditTransaction() {
-  const uK = document.getElementById('edit-tx-user').value;
-  const sK = document.getElementById('edit-tx-sa').value;
-  const idx = parseInt(document.getElementById('edit-tx-index').value);
+  const id = document.getElementById('edit-tx-id').value;
   const amount = parseFloat(document.getElementById('edit-tx-amount').value);
   const date = document.getElementById('edit-tx-date').value;
 
@@ -1300,8 +1309,7 @@ async function submitEditTransaction() {
   }
 
   try {
-    const tx = usersData[uK].subAccounts[sK].deposits[idx];
-    const res = await fetch(`/api/transactions/${tx.id}`, {
+    const res = await fetch(`/api/transactions/${id}`, {
       method: 'PUT',
       headers: getAuthHeaders(),
       body: JSON.stringify({ amount, date })

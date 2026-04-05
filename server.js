@@ -263,6 +263,74 @@ app.get('/api/data', requireAuth, async (req, res) => {
   }
 });
 
+/**
+ * NEW: Paginated Transactions Endpoint
+ * Optimizes performance by using server-side pagination and single-query JOINs.
+ */
+app.get('/api/transactions', requireAuth, async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const offset = (page - 1) * limit;
+    const search = req.query.search || '';
+    const userId = req.query.user_id || '';
+    const subAccountId = req.query.sub_account_id || '';
+
+    let whereClause = 'WHERE 1=1';
+    let params = [];
+
+    if (search) {
+      params.push(`%${search}%`);
+      whereClause += ` AND (t.label ILIKE $${params.length} OR u.name ILIKE $${params.length} OR s.label ILIKE $${params.length})`;
+    }
+
+    if (userId && userId !== 'all') {
+      params.push(userId);
+      whereClause += ` AND t.user_id = $${params.length}`;
+    }
+
+    if (subAccountId && subAccountId !== 'all') {
+      params.push(subAccountId);
+      whereClause += ` AND t.sub_account_id = $${params.length}`;
+    }
+
+    // 1. Get Total Count for Pagination
+    const countQuery = `
+      SELECT COUNT(*) 
+      FROM transactions t
+      JOIN users u ON t.user_id = u.id
+      JOIN sub_accounts s ON t.sub_account_id = s.id
+      ${whereClause}
+    `;
+    const countRes = await pool.query(countQuery, params);
+    const totalCount = parseInt(countRes.rows[0].count);
+
+    // 2. Get Paginated Data
+    const dataQuery = `
+      SELECT t.id, t.amount, t.date, t.label, u.name as user_name, s.label as sub_account_label
+      FROM transactions t
+      JOIN users u ON t.user_id = u.id
+      JOIN sub_accounts s ON t.sub_account_id = s.id
+      ${whereClause}
+      ORDER BY t.date DESC, t.id DESC
+      LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+    `;
+    const dataParams = [...params, limit, offset];
+    const dataRes = await pool.query(dataQuery, dataParams);
+
+    res.json({
+      data: dataRes.rows,
+      totalCount,
+      totalPages: Math.ceil(totalCount / limit),
+      page,
+      limit
+    });
+  } catch (err) {
+    console.error('Error fetching paginated transactions:', err);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
 // Middleware for Admin Only routes
 const requireAdmin = (req, res, next) => {
   if (req.session.role !== 'admin') {
